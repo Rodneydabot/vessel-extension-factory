@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<title>Extension Empire — Chrome Factory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{background:#020202;color:#e8e8e8;font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;min-height:100vh}
+body::after{content:'';position:fixed;inset:0;background:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");pointer-events:none;z-index:9999}
+.glow-bg{position:fixed;top:0;left:0;right:0;height:400px;background:radial-gradient(circle at 50% -20%, rgba(184,255,0,0.08) 0%, transparent 70%);pointer-events:none;z-index:0}
+
+pre{font-family:'Space Mono',monospace;font-size:11px;line-height:1.7;color:#7aff6e;background:#050505;border:1px solid #1a1a1a;padding:16px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+button, a{transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer;}
+button:active{transform: scale(0.98);}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes scanline{0%{top:-2px}100%{top:100%}}
+
+.anim-up{animation:slideUp .6s cubic-bezier(0.16, 1, 0.3, 1) both}
+.scroll-x{overflow-x:auto;scrollbar-width:none}
+.scroll-x::-webkit-scrollbar{display:none}
+
+.glass{background:rgba(15,15,15,0.7);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.05)}
+.neo-btn{background:#b8ff00;color:#000;font-weight:700;border:none;box-shadow: 0 0 20px rgba(184,255,0,0.2);}
+.neo-btn:hover{background:#c8ff40;box-shadow: 0 0 30px rgba(184,255,0,0.4);transform: translateY(-1px);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="glow-bg"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+const G = '#b8ff00';
+const BORDER = '#1c1c1c';
+const SURFACE = '#0f0f0f';
+const MID = '#777';
+const DIM = '#444';
+
+const mono = { fontFamily:"'Space Mono',monospace", letterSpacing:'0.08em', textTransform:'uppercase' };
+const disp = { fontFamily:"'Bebas Neue',sans-serif", letterSpacing:'0.06em', textTransform:'uppercase' };
+
+const STAGES = [
+  { id:'research',  label:'01 Research',   icon:'◉', color:'#b8ff00', desc:'Scan pain points & trends' },
+  { id:'score',     label:'02 Score',      icon:'◈', color:'#00cfff', desc:'Rank opportunity signals' },
+  { id:'blueprint', label:'03 Blueprint',  icon:'◬', color:'#ff6b35', desc:'Design extension spec' },
+  { id:'scaffold',  label:'04 Scaffold',   icon:'⬡', color:'#aa80ff', desc:'Generate MV3 code' },
+  { id:'funnel',    label:'05 Funnel',     icon:'▽', color:'#ffd700', desc:'Inject Vessel lead capture' },
+  { id:'publish',   label:'06 Publish',    icon:'◆', color:'#ff4d8d', desc:'Package & list' },
+];
+
+const PROVIDERS = {
+  gemini: { id:'gemini', label:'Gemini', color:'#4285f4', models:['gemini-2.0-flash','gemini-1.5-pro'], defaultModel:'gemini-2.0-flash', keyHint:'Free at aistudio.google.com', keyLink:'https://aistudio.google.com' },
+  openai: { id:'openai', label:'OpenAI', color:'#10a37f', models:['gpt-4o','gpt-4o-mini'], defaultModel:'gpt-4o-mini', keyHint:'platform.openai.com', keyLink:'https://platform.openai.com' },
+  chutes: { id:'chutes', label:'Chutes.ai', color:'#b8ff00', models:['deepseek-ai/DeepSeek-V3-0324','deepseek-ai/DeepSeek-R1'], defaultModel:'deepseek-ai/DeepSeek-V3-0324', keyHint:'chutes.ai', keyLink:'https://chutes.ai' },
+  local:  { id:'local',  label:'Local LLM',  color:'#aa80ff', models:['local-model'], defaultModel:'local-model', keyHint:'LocalAI / Ollama', keyLink:'https://github.com/mudler/LocalAI' }
+};
+
+const SEED_OPPS = [
+  { id:1, name:'ThreadToLinkedIn', source:'Twitter', score:94, users:'850k+', signal:'Frequent requests for twitter thread to long-form linkedin post automation.', vessel_offer:'Creator Agent', niche:'Influencers', confidence:'High' },
+  { id:2, name:'AmazonPriceGuard', source:'Reddit', score:92, users:'1.2M+', signal:'Users complaining about dynamic pricing on amazon during checkout.', vessel_offer:'Shopping Guard', niche:'E-commerce', confidence:'Very High' },
+  { id:3, name:'FocusFlow Agent', source:'Productivity', score:88, users:'500k+', signal:'Need for an agent that automatically blocks distractive tabs based on current task context.', vessel_offer:'Productivity Agent', niche:'Remote Work', confidence:'Medium' },
+  { id:4, name:'SDR Intelligence', source:'LinkedIn', score:96, users:'200k+', signal:'Sales reps needing real-time personality insights while browsing linkedin profiles.', vessel_offer:'Sales Agent', niche:'Sales/SDR', confidence:'High' },
+  { id:5, name:'AdStack Auditor', source:'Marketing', score:91, users:'350k+', signal:'Marketers wanting to see which tech stack competitors are using just by visiting their site.', vessel_offer:'Spy Agent', niche:'Marketers', confidence:'High' },
+  { id:6, name:'DevResume Builder', source:'GitHub', score:89, users:'400k+', signal:'Developers wanting a one-click resume generator from their github profile.', vessel_offer:'Career Agent', niche:'Developers', confidence:'Medium' },
+  { id:7, name:'MeetingSummarizer', source:'Zoom/Meet', score:95, users:'2M+', signal:'Intense demand for in-browser meeting transcription and action-item extraction.', vessel_offer:'Meeting Agent', niche:'Corporate', confidence:'Extreme' },
+  { id:8, name:'RealEstate Scout', source:'Zillow', score:87, users:'150k+', signal:'Investors wanting automated analysis of rental yield while browsing listings.', vessel_offer:'Investment Agent', niche:'Real Estate', confidence:'High' },
+  { id:10, name:'TokenTracker', source:'Dextools', score:97, users:'1.1M+', signal:'Crypto traders needing real-time sentiment analysis from social media while viewing charts.', vessel_offer:'Trading Agent', niche:'DeFi', confidence:'Very High' },
+  { id:11, name:'PolicyReader', source:'Legal', score:90, users:'300k+', signal:'Users want a "tl;dr" of terms of service before clicking sign-up.', vessel_offer:'Legal Agent', niche:'General', confidence:'Medium' },
+  { id:12, name:'AutoCoupon Agent', source:'E-commerce', score:93, users:'5M+', signal:'Honey-competitor that actually finds working codes in real-time using agents.', vessel_offer:'Savings Agent', niche:'Shoppers', confidence:'Very High' },
+  { id:13, name:'Ghostwriter Pro', source:'Gmail', score:95, users:'800k+', signal:'Autonomous email reply drafting based on user history and tone.', vessel_offer:'Email Agent', niche:'Professionals', confidence:'High' },
+  { id:14, name:'DevDocs Explorer', source:'Developer', score:86, users:'250k+', signal:'Search multiple developer documentation sites simultaneously with AI synthesis.', vessel_offer:'Dev Agent', niche:'Developers', confidence:'High' },
+  { id:15, name:'SentimentScout', source:'Trustpilot', score:88, users:'180k+', signal:'E-commerce owners wanting to track brand sentiment across reviews automatically.', vessel_offer:'Brand Agent', niche:'DTC Brands', confidence:'Medium' }
+];
+
+const SEED_BUILT = [
+  { id:1, name:'OpenMontage Studio', status:'live', installs:1240, leads:89, vessel_ctr:'12.4%', offer:'UGC Agent' }
+];
+
+const PRICING = {
+  'gemini-2.0-flash': { in:0, out:0, isFree:true },
+  'gpt-4o': { in:5.00, out:15.00 },
+  'gpt-4o-mini': { in:0.15, out:0.60 },
+  'claude-3-5-sonnet-20241022': { in:3.00, out:15.00 },
+  'deepseek-ai/DeepSeek-V3-0324': { in:0.30, out:0.80 }
+};
+
+function calculateCost(model, inTxt, outTxt) {
+  const p = PRICING[model] || { in:0.5, out:1.5 };
+  const inT = Math.ceil((inTxt||'').length / 4);
+  const outT = Math.ceil((outTxt||'').length / 4);
+  return ((inT * p.in) + (outT * p.out)) / 1000000;
+}
+
+async function callLLM(cfg, prompt, system='') {
+  const { provider, model, key, endpoint: customUrl } = cfg;
+  if(!key) throw new Error('API Key missing.');
+
+  if(provider === 'gemini') {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ contents:[{role:'user',parts:[{text:prompt}]}], systemInstruction: system ? {parts:[{text:system}]} : undefined })
+    });
+    const d = await res.json();
+    return d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+
+  const endpoint = provider === 'local' ? (customUrl || 'http://localhost:8080/v1') : provider === 'chutes' ? (window.location.protocol.startsWith('http') ? '/api/chutes' : (customUrl || 'https://api.chutes.ai/v1/chat/completions')) : 'https://api.openai.com/v1/chat/completions';
+  const headers = { 'Content-Type':'application/json' };
+  if(provider === 'chutes' && window.location.protocol.startsWith('http')) {
+    headers['x-chutes-key'] = key; headers['x-chutes-url'] = customUrl || 'https://api.chutes.ai/v1/chat/completions';
+  } else if(provider !== 'local') {
+    headers['Authorization'] = `Bearer ${key}`;
+  }
+
+  const res = await fetch(endpoint, {
+    method:'POST', headers,
+    body:JSON.stringify({ model, messages:[...(system?[{role:'system',content:system}]:[]), {role:'user',content:prompt}], temperature:0.7 })
+  });
+  const d = await res.json();
+  if(d.error) throw new Error(d.error.message);
+  return d.choices?.[0]?.message?.content || '';
+}
+
+// ── NAV ──
+function Nav({ tab, setTab, providerCfg, setProviderCfg }) {
+  const [show, setShow] = useState(false);
+  const [keys, setKeys] = useState({gemini:'',openai:'',chutes:'',local:'dummy'});
+  const [urls, setUrls] = useState({openai:'',chutes:'',local:'http://localhost:8080/v1'});
+  const tabs = [{id:'opportunities',label:'Opportunities'},{id:'pipeline',label:'Pipeline'},{id:'factory',label:'Builder'},{id:'built',label:'Empire'},{id:'admin',label:'Admin'}];
+
+  const save = (p) => { 
+    if(keys[p]) setProviderCfg({...providerCfg, provider:p, key:keys[p], model:PROVIDERS[p].defaultModel, endpoint:urls[p]}); 
+    setShow(false); 
+  };
+
+  return (
+    <nav style={{position:'fixed',top:0,left:0,right:0,zIndex:500,background:'#050505',borderBottom:`1px solid ${BORDER}`,height:52,display:'flex',alignItems:'center',padding:'0 20px',justifyContent:'space-between'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12}}>
+        <div style={{...disp,fontSize:18,color:G}}>EXTENSION EMPIRE</div>
+        <div style={{width:8,height:8,background:G,borderRadius:'50%',boxShadow:`0 0 10px ${G}`,animation:'pulse 2s infinite'}}/>
+      </div>
+      <div style={{display:'flex',gap:16}}>
+        {tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{...mono,fontSize:9,background:tab===t.id?G:'transparent',color:tab===t.id?G:DIM,border:'none',cursor:'pointer'}}>{t.label}</button>))}
+      </div>
+      <div style={{position:'relative'}}>
+        <button onClick={()=>setShow(!show)} style={{...mono,fontSize:8,background:providerCfg.key?G:'transparent',color:providerCfg.key?'#000':MID,border:`1px solid ${BORDER}`,padding:'6px 12px',cursor:'pointer'}}>
+          {providerCfg.provider || 'Setup AI'}
+        </button>
+        {show && (
+          <div style={{position:'absolute',right:0,top:40,background:SURFACE,border:`1px solid ${BORDER}`,padding:24,width:320,boxShadow:'0 10px 40px rgba(0,0,0,0.8)'}}>
+            {Object.values(PROVIDERS).map(p=>(
+              <div key={p.id} style={{marginBottom:24,borderBottom:p.id!=='chutes'?`1px solid ${BORDER}`:'none',paddingBottom:p.id!=='chutes'?16:0}}>
+                <p style={{...mono,fontSize:8,color:p.color,marginBottom:12}}>{p.label}</p>
+                <div style={{marginBottom:10}}>
+                  <label style={{...mono,fontSize:7,color:DIM,display:'block',marginBottom:4}}>API Key</label>
+                  <input type="password" value={keys[p.id]} onChange={e=>setKeys({...keys,[p.id]:e.target.value})} style={{width:'100%',background:'#000',border:`1px solid ${BORDER}`,color:'#fff',padding:10,fontSize:11,outline:'none'}} onFocus={e=>e.target.style.borderColor=p.color} onBlur={e=>e.target.style.borderColor=BORDER}/>
+                </div>
+                {p.id !== 'gemini' && (
+                  <div style={{marginBottom:16}}>
+                    <label style={{...mono,fontSize:7,color:DIM,display:'block',marginBottom:4}}>Custom Endpoint (for LocalAI/Ollama)</label>
+                    <input type="text" placeholder="http://localhost:8080/v1" value={urls[p.id]} onChange={e=>setUrls({...urls,[p.id]:e.target.value})} style={{width:'100%',background:'#000',border:`1px solid ${BORDER}`,color:MID,padding:10,fontSize:10,outline:'none'}} onFocus={e=>e.target.style.borderColor=p.color} onBlur={e=>e.target.style.borderColor=BORDER}/>
+                  </div>
+                )}
+                <button onClick={()=>save(p.id)} className="neo-btn" style={{...mono,fontSize:8,width:'100%',padding:10,background:p.color}}>Activate {p.label} →</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+// ── VIEWS ──
+// ── VIEWS ──
+function OpportunitiesView({ opps, setOpps, onSelect, providerCfg }) {
+  const [scanning, setScanning] = useState(false);
+  const [activeCat, setActiveCat] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+
+  const CATEGORIES = [
+    { id:'productivity', label:'Productivity', icon:'⚡', color:'#b8ff00', q:'/r/productivity "no way to" OR "wish there was"' },
+    { id:'marketing',    label:'Marketing',    icon:'📈', color:'#00cfff', q:'/r/marketing "how do i" OR "extension for"' },
+    { id:'dev',          label:'Developer',    icon:'⬡', color:'#4285f4', q:'github issues "seeking browser tool"' },
+    { id:'social',       label:'Social Media', icon:'💬', color:'#ffd700', q:'/r/socialmedia "broken tool" OR "help with"' },
+    { id:'shopping',     label:'Shopping',     icon:'🛒', color:'#ff4d8d', q:'/r/amazondeals "price tracker" OR "coupon"' }
+  ];
+
+  const runScan = async (cat=null) => {
+    if(!providerCfg?.key){ alert('Keys missing. Set in Nav.'); return; }
+    setScanning(true); setActiveCat(cat?.id);
+    const query = cat ? cat.q : 'top chrome extension pain points reddit 2024';
+    try {
+      const out = await callLLM(providerCfg, `Find 5 viralworthy browser tool opportunities for: ${query}. 
+      Format: JSON array [{name, signal, score(0-100), users, vessel_offer, niche}].`, "Signal Architect");
+      const parsed = JSON.parse(out.trim());
+      setOpps(p => [...parsed.map(o=>({...o, id:Date.now()+Math.random(), status:'ready', source:cat?cat.label:'Global Intelligence'})), ...p]);
+    } catch(e) { console.error(e); }
+    setScanning(false); setActiveCat(null);
+  };
+
+  const scoreColor = s => s>=90?G:s>=80?'#00cfff':'#ff6b35';
+
+  return (
+    <div style={{padding:24,maxWidth:1400,margin:'0 auto'}} className="anim-up">
+      <div style={{marginBottom:48,display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
+        <div>
+          <p style={{...mono,fontSize:9,color:G,marginBottom:8}}>Signal Intelligence</p>
+          <h2 style={{...disp,fontSize:64,color:'#fff',lineHeight:0.9}}>Empire<br/><span style={{color:G}}>Opportunities</span></h2>
+        </div>
+        <div style={{display:'flex',gap:12}}>
+           <button onClick={()=>runScan()} disabled={scanning} className="neo-btn" style={{...mono,fontSize:9,padding:'12px 24px',background:G}}>{scanning?'Scanning...':'⟳ Deep Scan Global'}</button>
+           <button onClick={()=>onSelect(null)} style={{...mono,fontSize:9,padding:'12px 24px',background:'transparent',border:`1px solid ${BORDER}`,color:MID}}>+ Manual Input</button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:1,background:BORDER,marginBottom:32}}>
+        {[
+          ['Total Signals', opps.length],
+          ['Avg Score', Math.round(opps.reduce((a,o)=>a+o.score,0)/opps.length) || 0],
+          ['Ready to Build', opps.length],
+          ['Market Reach', '4.2M+']
+        ].map(([l,v])=>(
+          <div key={l} style={{background:SURFACE,padding:24}}>
+            <p style={{...mono,fontSize:8,color:MID,marginBottom:8}}>{l}</p>
+            <p style={{...disp,fontSize:36,color:G}}>{v}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Real-Time Categories */}
+      <p style={{...mono,fontSize:8,color:DIM,marginBottom:16}}>Real-Time Reddit Categories</p>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:12,marginBottom:48}}>
+        {CATEGORIES.map(c=>(
+          <button key={c.id} onClick={()=>runScan(c)} disabled={scanning} style={{background:SURFACE,border:`1px solid ${activeCat===c.id?G:BORDER}`,padding:16,textAlign:'left',cursor:'pointer',transition:'all .3s'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <span style={{fontSize:24}}>{c.icon}</span>
+              {activeCat===c.id && <span style={{...mono,fontSize:7,color:G,animation:'pulse 1s infinite'}}>SCANNING</span>}
+            </div>
+            <p style={{...mono,fontSize:9,color:'#fff',marginBottom:4}}>{c.label}</p>
+            <p style={{fontSize:10,color:MID}}>Click to scan Reddit signals</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Opportunities Table */}
+      <div style={{border:`1px solid ${BORDER}`}}>
+        <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 140px',background:'#080808',borderBottom:`1px solid ${BORDER}`,padding:'12px 16px',alignItems:'center'}}>
+          {['Opportunity','Source','Score','Potential','Action'].map(h=><span key={h} style={{...mono,fontSize:8,color:DIM}}>{h}</span>)}
+        </div>
+        {opps.map(opp=>(
+          <div key={opp.id} style={{borderBottom:`1px solid ${BORDER}`}}>
+            <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 140px',background:SURFACE,padding:'20px 16px',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedId(expandedId===opp.id?null:opp.id)}>
+              <div>
+                <p style={{fontSize:16,color:'#fff',fontWeight:500,marginBottom:4}}>{opp.name}</p>
+                <div style={{display:'flex',gap:12,alignItems:'center'}}>
+                   <span style={{fontSize:10,color:MID}}>{opp.signal?.slice(0,80)}...</span>
+                   <span style={{...mono,fontSize:7,color:G,background:`${G}15`,padding:'2px 6px',borderRadius:2}}>{opp.confidence} CONFIDENCE</span>
+                </div>
+              </div>
+              <span style={{...mono,fontSize:9,color:G}}>{opp.source}</span>
+              <span style={{...disp,fontSize:24,color:scoreColor(opp.score)}}>{opp.score}</span>
+              <span style={{fontSize:12,color:MID}}>{opp.users}</span>
+              <button onClick={e=>{e.stopPropagation();onSelect(opp);}} className="neo-btn" style={{...mono,fontSize:8,padding:'10px 16px',background:G}}>Build My Empire →</button>
+            </div>
+            {expandedId===opp.id && (
+              <div style={{padding:20,background:'#0a0a0a',borderTop:`1px solid ${BORDER}`}} className="anim-up">
+                 <p style={{fontSize:13,color:'#ccc',lineHeight:1.6,marginBottom:16}}>{opp.signal}</p>
+                 <div style={{display:'flex',gap:24}}>
+                    <div><p style={{...mono,fontSize:7,color:DIM,marginBottom:4}}>Vessel Offer</p><p style={{fontSize:12,color:G}}>{opp.vessel_offer}</p></div>
+                    <div><p style={{...mono,fontSize:7,color:DIM,marginBottom:4}}>Target Niche</p><p style={{fontSize:12,color:'#fff'}}>{opp.niche || 'General'}</p></div>
+                 </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PipelineView({ providerCfg, pipelines, setTab, setSelectedOpp }) {
+  const [activeStage, setActiveStage] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [stageOutput, setStageOutput] = useState({});
+  const [topic, setTopic] = useState('productivity tools for remote workers');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if(topic.length > 5 && !running) runStage(STAGES[0]);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [topic]);
+
+  const runStage = async (stage) => {
+    if(!providerCfg?.key){ alert('Keys missing.'); return; }
+    setRunning(true); setActiveStage(stage.id);
+    const system = `You are the Extension Empire Architect. Your goal is to build viraleworthy lead magnets for the Vessel Protocol.
+    Strategic Goals:
+    - Solve high-intensity pain points for users locked in their browser (monotone tasks, research, productivity leaks).
+    - Every extension must bridge to the Vessel Protocol with the CTA: "Like this app? Join the Vessel Protocol today and we will show you how to create your own."
+    - Every extension must include a referral and sharing mechanism to drive viral growth.
+    - Extensions are the doorways to the Vessel Marketplace.`;
+
+    try {
+      const out = await callLLM(providerCfg, `Execute Stage: ${stage.label} for Topic: ${topic}. Focus on virality, referrals, and marketplace submission metadata. Output the direct results only.`, system);
+      setStageOutput(p => ({...p, [stage.id]: out}));
+    } catch(e) { setStageOutput(p => ({...p, [stage.id]: `Error: ${e.message}`})); }
+    setRunning(false);
+  };
+
+  return (
+    <div style={{padding:'40px 24px',maxWidth:1400,margin:'0 auto'}} className="anim-up">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:48,gap:40,flexWrap:'wrap'}}>
+        <div>
+          <p style={{...mono,fontSize:9,color:G,marginBottom:8}}>Intelligence Pipeline</p>
+          <h2 style={{...disp,fontSize:64,color:'#fff',lineHeight:0.9}}>Empire<br/><span style={{color:G}}>Architecture</span></h2>
+        </div>
+        <div style={{flex:1,maxWidth:500}}>
+          <p style={{...mono,fontSize:8,color:MID,marginBottom:12}}>Mission Parameter: Topic Research</p>
+          <div style={{display:'flex',background:SURFACE,border:`1px solid ${BORDER}`}}>
+            <input value={topic} onChange={e=>setTopic(e.target.value)} style={{flex:1,background:'transparent',border:'none',color:'#fff',padding:'14px 18px',fontSize:14,outline:'none'}} placeholder="What should we build?" />
+            <button onClick={()=>runStage(STAGES[0])} className="neo-btn" style={{...mono,fontSize:9,padding:'0 20px',height:48}}>Search →</button>
+          </div>
+        </div>
+      </div>
+
+      {Object.keys(stageOutput).length > 0 && (
+         <div style={{marginBottom:32,display:'flex',gap:12}}>
+            <button onClick={()=>{
+              const name = topic || 'New Empire';
+              setSelectedOpp({ name, signal: topic, vessel_offer: 'Pipeline Agent', stageOutput });
+              setTab('factory');
+            }} style={{...mono,fontSize:9,background:'rgba(184,255,0,0.1)',color:G,border:`1px solid ${G}`,padding:'12px 20px',cursor:'pointer'}}>
+              Initialize Builder Engine →
+            </button>
+         </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:24,marginBottom:48}}>
+        {STAGES.map(s=>(
+          <div key={s.id} onClick={()=>!s.comingSoon&&runStage(s)} style={{background:SURFACE,border:`1px solid ${activeStage===s.id?s.color:BORDER}`,padding:24,position:'relative',overflow:'hidden',opacity:s.comingSoon?0.6:1,cursor:s.comingSoon?'not-allowed':'pointer',transition:'all .2s'}} onMouseOver={e=>!s.comingSoon&&(e.currentTarget.style.borderColor=s.color)} onMouseOut={e=>!s.comingSoon&&(e.currentTarget.style.borderColor=activeStage===s.id?s.color:BORDER)}>
+            {activeStage===s.id && running && <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:s.color,animation:'scanline 1s linear infinite'}}/>}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16}}>
+              <span style={{fontSize:24,color:stageOutput[s.id]?s.color:s.comingSoon?DIM:MID}}>{s.icon}</span>
+              {s.comingSoon ? (
+                <span style={{...mono,fontSize:7,color:DIM,border:`1px solid ${DIM}`,padding:'2px 6px'}}>COMING SOON</span>
+              ) : stageOutput[s.id] ? (
+                <span style={{...mono,fontSize:7,color:s.color,border:`1px solid ${s.color}`,padding:'2px 6px',background:`${s.color}15`}}>COMPLETE</span>
+              ) : null}
+            </div>
+            <p style={{...mono,fontSize:9,color:stageOutput[s.id]?s.color:MID,marginBottom:4}}>{s.label}</p>
+            <p style={{fontSize:13,color:s.comingSoon?DIM:'#ccc',fontWeight:300,lineHeight:1.4}}>{s.desc}</p>
+            
+            {/* Scoring Visualization (Stage 02) */}
+            {s.id === 'score' && stageOutput[s.id] && (
+              <div style={{marginTop:16,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                {[['Market',8],['Pain',9],['Build',7],['Agent',10]].map(([l,v])=>(
+                  <div key={l}>
+                    <div style={{display:'flex',justifyContent:'space-between',fontSize:7,color:MID,marginBottom:2}}><span style={mono}>{l}</span><span>{v}/10</span></div>
+                    <div style={{height:2,background:'#222'}}><div style={{height:'100%',background:s.color,width:`${v*10}%`}}/></div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!s.comingSoon && !stageOutput[s.id] && !running && <div style={{marginTop:16,fontSize:8,color:DIM,textAlign:'right',...mono}}>Click to Run Stage →</div>}
+          </div>
+        ))}
+      </div>
+
+      {Object.entries(stageOutput).map(([id, out])=>(
+        <div key={id} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderLeft:`3px solid ${STAGES.find(s=>s.id===id).color}`,marginBottom:24}} className="anim-up">
+          <div style={{padding:'12px 20px',borderBottom:`1px solid ${BORDER}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{...mono,fontSize:9,color:STAGES.find(s=>s.id===id).color}}>{STAGES.find(s=>s.id===id).label} Output</span>
+            <button onClick={()=>navigator.clipboard.writeText(out)} style={{...mono,fontSize:7,background:'transparent',color:MID,border:`1px solid ${BORDER}`,padding:'4px 8px'}}>Copy</button>
+          </div>
+          <pre style={{padding:24,maxHeight:300,overflowY:'auto'}}>{out}</pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BuiltView({ built }) {
+  return (
+    <div style={{padding:24,maxWidth:1200,margin:'0 auto'}} className="anim-up">
+      <div style={{marginBottom:48}}>
+        <p style={{...mono,fontSize:9,color:G,marginBottom:8}}>Empire Portfolio</p>
+        <h2 style={{...disp,fontSize:64,color:'#fff',lineHeight:0.9}}>Built<br/><span style={{color:G}}>Assets</span></h2>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))',gap:24}}>
+        {built.map(b=>(
+          <div key={b.id} style={{background:SURFACE,border:`1px solid ${BORDER}`,padding:24,transition:'all .3s'}} className="anim-up">
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16}}>
+               <h3 style={{fontSize:24,color:'#fff',fontWeight:600}}>{b.name}</h3>
+               <span style={{...mono,fontSize:7,color:G,border:`1px solid ${G}`,padding:'2px 8px',background:`${G}15`}}>MARKETPLACE READY</span>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:24}}>
+              <div>
+                <p style={{...mono,fontSize:7,color:MID,marginBottom:4}}>Total Installs</p>
+                <p style={{fontSize:18,color:'#fff'}}>{b.installs}</p>
+              </div>
+              <div>
+                <p style={{...mono,fontSize:7,color:MID,marginBottom:4}}>Vessel Conversion</p>
+                <p style={{fontSize:18,color:G}}>{b.vessel_ctr}</p>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:12}}>
+               <button className="neo-btn" style={{...mono,fontSize:8,padding:'10px 16px',flex:1}}>Launch Marketplace →</button>
+               <button style={{...mono,fontSize:8,padding:'10px 16px',background:'transparent',border:`1px solid ${BORDER}`,color:MID,flex:1}}>View Referrals</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FactoryView({ isBuilding, buildStep, outputs, log, logRef, selectedOpp }) {
+  const labels = {research:'Market Research', blueprint:'Blueprint', manifest:'manifest.json', background:'background.js', content:'content.js', popup:'popup UI', listing:'Store Listing'};
+  return (
+    <div style={{padding:24,maxWidth:1200,margin:'0 auto'}}>
+      <h2 style={{...disp,fontSize:48,marginBottom:24}}>Builder Engine</h2>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32}}>
+        <div style={{background:SURFACE,border:`1px solid ${BORDER}`,padding:24}}>
+          <p style={{...mono,fontSize:10,color:G,marginBottom:20}}>Progress Pipeline</p>
+          {Object.keys(labels).map(k=>(
+            <div key={k} style={{display:'flex',alignItems:'center',gap:12,marginBottom:12,opacity:outputs[k]?1:buildStep===k?1:0.3}}>
+              <div style={{width:16,height:16,border:`1px solid ${G}`,background:outputs[k]?G:'transparent'}}/>
+              <span style={{...mono,fontSize:9}}>{labels[k]}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{background:'#050505',border:`1px solid ${BORDER}`,height:300,overflowY:'auto',padding:16,marginBottom:16}} ref={logRef}>
+            {log.map((l,i)=>(<div key={i} style={{fontSize:10,color:l.type==='done'?G:l.type==='running'?'#00cfff':'#fff',marginBottom:4}}>{l.msg}</div>))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminView({ totalSpend }) {
+  return (
+    <div style={{padding:24,maxWidth:1200,margin:'0 auto'}} className="anim-up">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:48,borderBottom:`1px solid ${BORDER}`,paddingBottom:24}}>
+        <div>
+          <p style={{...mono,fontSize:9,color:G,marginBottom:8}}>Empire Control</p>
+          <h2 style={{...disp,fontSize:64,color:'#fff',lineHeight:0.9}}>Admin <span style={{color:G}}>/ Config</span></h2>
+        </div>
+        <div style={{textAlign:'right'}}>
+          <p style={{...mono,fontSize:8,color:MID,marginBottom:4}}>TOTAL FLEET SPEND</p>
+          <p style={{fontSize:48,color:G,fontWeight:700}}>${totalSpend.toFixed(4)}</p>
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:32}}>
+        <div style={{background:SURFACE,border:`1px solid ${BORDER}`,padding:32}}>
+          <h3 style={{...disp,fontSize:24,marginBottom:20,color:'#fff'}}>$0 Build Guide (Local AI)</h3>
+          <div style={{fontSize:14,color:MID,lineHeight:1.6}}>
+            <p style={{marginBottom:16}}>To build for free without API costs, use <b style={{color:G}}>LocalAI</b> or Ollama:</p>
+            <ol style={{paddingLeft:20,marginBottom:16}}>
+              <li style={{marginBottom:8}}>Run LocalAI (Dashboard at `http://localhost:8080/app`).</li>
+              <li style={{marginBottom:8}}>Open <b>Setup AI</b> (top right).</li>
+              <li style={{marginBottom:8}}>Set <b>Provider</b> to Local LLM.</li>
+              <li style={{marginBottom:8}}>Enter <b>Custom URL</b>: `http://localhost:8080/v1`</li>
+              <li>API Key: <b>Not required</b> (any dummy text works).</li>
+            </ol>
+            <a href="https://github.com/mudler/LocalAI" target="_blank" style={{color:G,textDecoration:'none',fontSize:12}}>View LocalAI Repo ↗</a>
+          </div>
+        </div>
+        <div style={{background:SURFACE,border:`1px solid ${BORDER}`,padding:24,height:'fit-content'}}>
+          <p style={{...mono,fontSize:10,color:'#fff',marginBottom:16}}>Fleet Maintenance</p>
+          <button onClick={()=>{if(confirm('WIPE ALL DATA?'))localStorage.clear();window.location.reload();}} style={{...mono,width:'100%',padding:12,background:'transparent',border:'1px solid #ff4d4d',color:'#ff4d4d',cursor:'pointer'}}>Wipe Persistence</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OnboardingView({ onComplete }) {
+  const [step, setStep] = useState(0);
+  const steps = [
+    { q: "Welcome to the Empire", desc: "How do you want to dominate the Chrome Extension market?", options: ["Create Passive Income", "Automate Daily Tasks", "Build a Portfolio"] },
+    { q: "Choose your starting Arsenal", desc: "Select your AI power source. You can always upgrade later.", options: ["Free (Gemini/Local)", "Standard (GPT-4o Mini)", "Pro (Architect Strategy)"] }
+  ];
+  return (
+    <div style={{position:'fixed',inset:0,background:'#000',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{maxWidth:480,width:'100%',textAlign:'center'}} className="anim-up">
+        <p style={{...mono,fontSize:10,color:G,marginBottom:16}}>Empire Initialization Sequence</p>
+        <h2 style={{...disp,fontSize:48,color:'#fff',lineHeight:1,marginBottom:12}}>{steps[step].q}</h2>
+        <p style={{fontSize:15,color:MID,marginBottom:40,fontWeight:300}}>{steps[step].desc}</p>
+        <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:40}}>
+          {steps[step].options.map(o=>(
+            <button key={o} onClick={()=>{if(step<steps.length-1)setStep(s=>s+1);else onComplete();}} style={{...mono,width:'100%',padding:18,background:'transparent',border:`1px solid ${BORDER}`,color:MID,cursor:'pointer',fontSize:12,transition:'all .2s'}} onMouseOver={e=>e.target.style.borderColor=G} onMouseOut={e=>e.target.style.borderColor=BORDER}>{o}</button>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:6,justifyContent:'center'}}>
+          {steps.map((_,i)=>(<div key={i} style={{height:2,width:40,background:i<=step?G:BORDER,transition:'all .3s'}}/>))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState('pipeline');
+  const [opps, setOpps] = useState(SEED_OPPS);
+  const [selectedOpp, setSelectedOpp] = useState(null);
+  const [providerCfg, setProviderCfg] = useState(() => {
+    const s = localStorage.getItem('ee_provider_cfg');
+    return s ? JSON.parse(s) : {provider:'', model:'', key:''};
+  });
+  const [built, setBuilt] = useState(() => {
+    const s = localStorage.getItem('ee_built');
+    return s ? JSON.parse(s) : SEED_BUILT;
+  });
+  const [totalSpend, setTotalSpend] = useState(() => {
+    const s = localStorage.getItem('ee_total_spend');
+    return s ? Number(s) : 0;
+  });
+  const [onboarding, setOnboarding] = useState(() => localStorage.getItem('ee_onboard') !== 'done');
+  
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [buildStep, setBuildStep] = useState('');
+  const [buildLog, setBuildLog] = useState([]);
+  const [buildOutputs, setBuildOutputs] = useState({});
+  const logRef = useRef(null);
+
+  useEffect(() => localStorage.setItem('ee_provider_cfg', JSON.stringify(providerCfg)), [providerCfg]);
+  useEffect(() => localStorage.setItem('ee_built', JSON.stringify(built)), [built]);
+  useEffect(() => localStorage.setItem('ee_total_spend', totalSpend.toString()), [totalSpend]);
+  useEffect(() => { if(!onboarding) localStorage.setItem('ee_onboard', 'done'); }, [onboarding]);
+
+  const addLog = (msg, type) => setBuildLog(p=>[...p, {msg, type}]);
+
+  const runBuild = async (opp) => {
+    setTab('factory'); setIsBuilding(true); setBuildLog([]); setBuildOutputs({});
+    const stages = [
+      {id:'research',label:'Research',arch:true},
+      {id:'blueprint',label:'Blueprint',arch:true},
+      {id:'manifest',label:'manifest.json'},
+      {id:'background',label:'background.js'},
+      {id:'content',label:'content.js'},
+      {id:'popup',label:'popup UI'},
+      {id:'listing',label:'Listing'}
+    ];
+    try {
+      const res = {};
+      for(const s of stages) {
+        setBuildStep(s.id);
+        const model = s.arch ? 'gpt-4o' : 'claude-3-5-sonnet-20241022';
+        addLog(`▶ [${s.arch?'ARCHITECT':'CODER'}] ${s.label} (${model})`, 'running');
+        const system = `You are the Lead Magnet Engineer. Build a viral extension for ${opp.name}.
+        Requirements:
+        - Include Vessel Protocol CTA: "Like this app? Join the Vessel Protocol today and we will show you how to create your own."
+        - Generate code for a Referral Sharing system in the popup UI.
+        - Ensure high utility and low friction for new users.`;
+        const out = await callLLM({...providerCfg, model}, `Build ${s.label} for ${opp.name}. Reference topic: ${opp.signal}.`, system);
+        const cost = calculateCost(model, opp.name, out);
+        setTotalSpend(p=>p+cost);
+        res[s.id] = out;
+        setBuildOutputs({...res});
+        addLog(`✓ ${s.label} ($${cost.toFixed(4)})`, 'done');
+      }
+      setBuilt(p=>[{id:Date.now(),name:opp.name,installs:0,leads:0,vessel_ctr:'0%',offer:'Agent'},...p]);
+    } catch(e){ addLog(`✗ Error: ${e.message}`, 'error'); }
+    setIsBuilding(false);
+  };
+
+  return (
+    <div style={{minHeight:'100vh',background:'#050505'}}>
+      {onboarding && <OnboardingView onComplete={()=>setOnboarding(false)}/>}
+      <Nav tab={tab} setTab={setTab} providerCfg={providerCfg} setProviderCfg={setProviderCfg}/>
+      <div style={{paddingTop:52,position:'relative',zIndex:1}}>
+        {tab==='pipeline' && <PipelineView providerCfg={providerCfg} setTab={setTab} setSelectedOpp={setSelectedOpp}/>}
+        {tab==='opportunities' && <OpportunitiesView opps={opps} setOpps={setOpps} onSelect={runBuild} providerCfg={providerCfg}/>}
+        {tab==='factory' && <FactoryView isBuilding={isBuilding} buildStep={buildStep} outputs={buildOutputs} log={buildLog} logRef={logRef}/>}
+        {tab==='built' && <BuiltView built={built}/>}
+        {tab==='admin' && <AdminView totalSpend={totalSpend}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App/>, document.getElementById('root'));
+</script>
+</body>
+</html>

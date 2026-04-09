@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["...", "python311", "chromium"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[deploy]
+startCommand = "node server.js"
